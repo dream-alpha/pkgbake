@@ -1,0 +1,56 @@
+#!/bin/bash
+pkgtype="$1"
+gitdir="$2"
+pkgdir="$3"
+if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+	echo "Usage: $0 <deb|ipk> <git dir> <pkg dir>"
+	exit 1
+fi
+
+# clean pkgdir
+rm -rf $pkgdir/*
+
+# Prepare package structure using unified pkgbake.py
+python $HOME/git/pkgbake/src/pkgbake.py -i "$gitdir" -o "$pkgdir"
+
+# Parse control file to get package info
+control_file="$pkgdir/pkgroot/CONTROL/control"
+if [ ! -f "$control_file" ]; then
+	echo "Control file not found: $control_file"
+	exit 1
+fi
+
+pkg_name=$(grep "^Package:" "$control_file" | cut -d' ' -f2)
+pkg_version=$(grep "^Version:" "$control_file" | cut -d' ' -f2)
+pkg_arch=$(grep "^Architecture:" "$control_file" | cut -d' ' -f2)
+
+echo "name:" $pkg_name "version:" $pkg_version "arch:" $pkg_arch
+if [ -z "$pkg_name" ] || [ -z "$pkg_version" ] || [ -z "$pkg_arch" ]; then
+	echo "Could not parse package information from control file"
+	exit 1
+fi
+
+# Create the package
+if [ "$pkgtype" = "ipk" ]; then
+	echo "Creating IPK package..."
+	echo "pkgdir:" $pkgdir
+	"$(dirname "$0")"/opkg-build $pkgdir/pkgroot "$pkgdir"
+	if [ $? -eq 0 ]; then
+		pkg_file=$pkgdir/${pkg_name}_${pkg_version}_${pkg_arch}.ipk
+		echo "IPK package created:" $pkg_file
+	else
+		echo "IPK package creation failed"
+		exit 1
+	fi
+else
+	echo "Creating DEB package..."
+	dpkg-deb -b -z2 "$pkgdir"
+	if [ $? -eq 0 ]; then
+		mv "$pkgdir.deb" "$pkgdir/${pkg_name}_${pkg_version}_${pkg_arch}.deb"
+		echo "DEB package created: $pkgdir/${pkg_name}_${pkg_version}_${pkg_arch}.deb"
+	else
+		echo "DEB package creation failed"
+		exit 1
+	fi
+fi
+echo $pkg_file
